@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureBank - Homomorphic Encryption Banking System</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <!--
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║  STEP 1: Replace all "YOUR_..." values below with your Firebase  ║
+    ║  config. Find them at:                                           ║
+    ║  Firebase Console → Project Settings → General → Your Apps      ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import {
+            getAuth,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut,
+            onAuthStateChanged
+        } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+        const firebaseConfig = {
+                apiKey: "",
+                authDomain: "",
+                projectId: "",
+                storageBucket: "",
+                messagingSenderId: "",
+                appId: ""
+};
+
+        const firebaseApp  = initializeApp(firebaseConfig);
+        const firebaseAuth = getAuth(firebaseApp);
+
+        // Expose to non-module scripts below
+        window._fbSignIn    = (email, pw) => signInWithEmailAndPassword(firebaseAuth, email, pw);
+        window._fbRegister  = (email, pw) => createUserWithEmailAndPassword(firebaseAuth, email, pw);
+        window._fbSignOut   = ()           => signOut(firebaseAuth);
+        window._fbGetToken  = ()           => firebaseAuth.currentUser
+                                                ? firebaseAuth.currentUser.getIdToken()
+                                                : Promise.resolve(null);
+
+        // Show/hide panels based on login state
+        onAuthStateChanged(firebaseAuth, (user) => {
+            if (user) {
+                document.getElementById('authPanel').style.display = 'none';
+                document.getElementById('appPanel').style.display  = 'block';
+                document.getElementById('userEmail').textContent    = user.email;
+                // Initial data load once authenticated
+                if (typeof fetchStats === 'function') {
+                    fetchStats();
+                    fetchAccounts();
+                    fetchTransactions();
+                }
+            } else {
+                document.getElementById('authPanel').style.display = 'flex';
+                document.getElementById('appPanel').style.display  = 'none';
+            }
+        });
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary:       #0A4D3C;
+            --primary-light: #0D6B51;
+            --secondary:     #F5A623;
+            --background:    #F8FAF9;
+            --surface:       #FFFFFF;
+            --text:          #1A1A1A;
+            --text-light:    #6B7280;
+            --border:        #E5E7EB;
+            --success:       #10B981;
+            --error:         #EF4444;
+            --shadow:        rgba(0,0,0,0.05);
+            --shadow-lg:     rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--background);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* ══════════════════ AUTH PANEL ══════════════════ */
+        #authPanel {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0A4D3C 0%, #0D6B51 55%, #1a7a5e 100%);
+        }
+
+        .auth-card {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+        }
+
+        .auth-logo {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .auth-logo-icon {
+            width: 68px; height: 68px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center; justify-content: center;
+            font-size: 32px;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 8px 20px rgba(10,77,60,0.3);
+        }
+
+        .auth-logo h1 { font-size: 1.75rem; font-weight: 700; color: var(--primary); }
+
+        .auth-logo p {
+            font-size: 0.75rem; color: var(--text-light);
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase; letter-spacing: 1px;
+            margin-top: 0.25rem;
+        }
+
+        .auth-tabs {
+            display: flex;
+            background: var(--background);
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 1.75rem;
+        }
+
+        .auth-tab-btn {
+            flex: 1; padding: 0.6rem; border: none;
+            border-radius: 7px; font-size: 0.9rem; font-weight: 600;
+            cursor: pointer; background: transparent; color: var(--text-light);
+            transition: all 0.2s;
+        }
+
+        .auth-tab-btn.active {
+            background: var(--surface);
+            color: var(--primary);
+            box-shadow: 0 2px 8px var(--shadow-lg);
+        }
+
+        .auth-form-group { margin-bottom: 1.25rem; }
+
+        .auth-label {
+            display: block; font-size: 0.875rem; font-weight: 600;
+            margin-bottom: 0.4rem; color: var(--text);
+        }
+
+        .auth-input {
+            width: 100%; padding: 0.8rem 1rem;
+            border: 2px solid var(--border); border-radius: 10px;
+            font-size: 1rem; font-family: 'DM Sans', sans-serif;
+            transition: all 0.2s; background: var(--background);
+        }
+
+        .auth-input:focus {
+            outline: none; border-color: var(--primary);
+            background: var(--surface);
+            box-shadow: 0 0 0 4px rgba(10,77,60,0.1);
+        }
+
+        .auth-btn {
+            width: 100%; padding: 0.9rem;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: white; border: none; border-radius: 10px;
+            font-size: 1rem; font-weight: 700; cursor: pointer;
+            transition: all 0.2s; margin-top: 0.5rem;
+        }
+
+        .auth-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(10,77,60,0.3); }
+        .auth-btn:active { transform: translateY(0); }
+
+        .auth-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+        .auth-error {
+            background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+            color: var(--error); padding: 0.75rem 1rem;
+            border-radius: 8px; font-size: 0.875rem; margin-bottom: 1rem;
+            display: none;
+        }
+
+        .auth-success {
+            background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3);
+            color: var(--success); padding: 0.75rem 1rem;
+            border-radius: 8px; font-size: 0.875rem; margin-bottom: 1rem;
+            display: none;
+        }
+
+        /* ══════════════════ APP PANEL ══════════════════ */
+        #appPanel { display: none; }
+
+        .app-container { min-height: 100vh; display: flex; flex-direction: column; }
+
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 1.25rem 2rem;
+            box-shadow: 0 2px 8px var(--shadow);
+            position: sticky; top: 0; z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px; margin: 0 auto;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+
+        .logo-section { display: flex; align-items: center; gap: 1rem; }
+
+        .logo {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px; color: white; font-weight: bold;
+        }
+
+        .brand-name     { font-size: 1.5rem; font-weight: 700; color: var(--primary); letter-spacing: -0.5px; }
+        .brand-tagline  { font-size: 0.75rem; color: var(--text-light); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 1px; }
+
+        .header-right   { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+        .user-chip {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.4rem 0.9rem;
+            background: rgba(10,77,60,0.06);
+            border: 1px solid rgba(10,77,60,0.15);
+            border-radius: 20px; font-size: 0.8rem;
+        }
+
+        .user-chip-dot {
+            width: 7px; height: 7px;
+            background: var(--success); border-radius: 50%;
+        }
+
+        .user-chip span { font-weight: 600; color: var(--primary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .status-badge {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(16,185,129,0.1);
+            border: 1px solid rgba(16,185,129,0.3);
+            border-radius: 20px; font-size: 0.875rem; color: var(--success); font-weight: 500;
+        }
+
+        .status-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
+
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+        .btn-logout {
+            padding: 0.45rem 0.9rem;
+            background: rgba(239,68,68,0.08);
+            color: var(--error);
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+        }
+
+        .btn-logout:hover { background: rgba(239,68,68,0.18); }
+
+        /* ══════════════════ MAIN CONTENT (unchanged from original) ══════════════════ */
+        main { flex: 1; max-width: 1400px; margin: 0 auto; padding: 2rem; width: 100%; }
+
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+
+        .stat-card { background: var(--surface); padding: 1.5rem; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 4px 12px var(--shadow); transition: transform .2s, box-shadow .2s; }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--shadow-lg); }
+        .stat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .stat-title { font-size: .875rem; font-weight: 500; color: var(--text-light); text-transform: uppercase; letter-spacing: .5px; }
+        .stat-icon { width: 40px; height: 40px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: var(--text); margin-bottom: .25rem; }
+        .stat-label { font-size: .875rem; color: var(--text-light); }
+
+        .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 2px solid var(--border); }
+        .tab { padding: 1rem 1.5rem; background: none; border: none; font-size: 1rem; font-weight: 600; color: var(--text-light); cursor: pointer; border-bottom: 3px solid transparent; transition: all .3s; position: relative; bottom: -2px; }
+        .tab:hover { color: var(--primary); }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        .tab-content { display: none; animation: fadeIn .3s; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+        .card { background: var(--surface); border-radius: 16px; padding: 2rem; border: 1px solid var(--border); box-shadow: 0 4px 12px var(--shadow); }
+        .card-title { font-size: 1.25rem; font-weight: 700; color: var(--text); margin-bottom: 1.5rem; display: flex; align-items: center; gap: .75rem; }
+        .card-title::before { content:''; width: 4px; height: 24px; background: var(--primary); border-radius: 2px; }
+
+        .form-group { margin-bottom: 1.5rem; }
+        .form-label { display: block; font-size: .875rem; font-weight: 600; color: var(--text); margin-bottom: .5rem; }
+        .form-input, .form-select { width: 100%; padding: .875rem 1rem; border: 2px solid var(--border); border-radius: 10px; font-size: 1rem; font-family: 'DM Sans',sans-serif; transition: all .2s; background: var(--background); }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); background: var(--surface); box-shadow: 0 0 0 4px rgba(10,77,60,.1); }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 1rem; }
+
+        .btn { padding: .875rem 1.75rem; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: .5rem; justify-content: center; }
+        .btn-primary  { background: linear-gradient(135deg,var(--primary),var(--primary-light)); color: white; }
+        .btn-primary:hover  { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(10,77,60,.3); }
+        .btn-secondary { background: var(--background); color: var(--text); border: 2px solid var(--border); }
+        .btn-secondary:hover { background: var(--surface); border-color: var(--primary); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-demo    { background: linear-gradient(135deg,var(--secondary),#FF8C42); color: white; }
+
+        .table-container { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; background: var(--surface); }
+        thead { background: var(--background); }
+        th { padding: 1rem; text-align: left; font-size: .875rem; font-weight: 600; color: var(--text-light); text-transform: uppercase; letter-spacing: .5px; }
+        td { padding: 1rem; border-top: 1px solid var(--border); font-size: .9375rem; }
+        tr:hover { background: var(--background); }
+
+        .badge { padding: .25rem .75rem; border-radius: 20px; font-size: .75rem; font-weight: 600; display: inline-block; }
+        .badge-success { background: rgba(16,185,129,.1); color: var(--success); }
+        .badge-error   { background: rgba(239,68,68,.1);  color: var(--error);   }
+        .badge-info    { background: rgba(59,130,246,.1);  color: #3B82F6;        }
+
+        .alert { padding: 1rem 1.5rem; border-radius: 10px; margin-bottom: 1.5rem; display: flex; align-items: center; gap: .75rem; animation: slideDown .3s; }
+        @keyframes slideDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+        .alert-success { background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.3); color: var(--success); }
+        .alert-error   { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  color: var(--error);   }
+        .alert-info    { background: rgba(59,130,246,.1);  border: 1px solid rgba(59,130,246,.3);  color: #3B82F6;       }
+
+        .encryption-info { background: linear-gradient(135deg,rgba(10,77,60,.05),rgba(13,107,81,.05)); border: 2px solid rgba(10,77,60,.2); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+        .encryption-title { font-size: 1rem; font-weight: 700; color: var(--primary); margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
+        .encryption-desc  { font-size: .875rem; color: var(--text-light); line-height: 1.6; }
+
+        .code-block { background: #1E1E1E; color: #D4D4D4; padding: 1rem; border-radius: 8px; font-family: 'JetBrains Mono',monospace; font-size: .875rem; overflow-x: auto; margin-top: 1rem; }
+
+        footer { background: var(--surface); border-top: 1px solid var(--border); padding: 2rem; text-align: center; margin-top: 3rem; }
+        .footer-content { max-width: 1400px; margin: 0 auto; }
+        .footer-text { font-size: .875rem; color: var(--text-light); margin-bottom: .5rem; }
+        .footer-links { display: flex; justify-content: center; gap: 2rem; margin-top: 1rem; }
+        .footer-link { color: var(--primary); text-decoration: none; font-weight: 500; transition: color .2s; }
+        .footer-link:hover { color: var(--primary-light); }
+
+        @media (max-width: 768px) {
+            .header-content { flex-direction: column; gap: 1rem; }
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .tabs { overflow-x: auto; }
+            .form-row { grid-template-columns: 1fr; }
+            .header-right { justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     AUTH PANEL  — shown when logged out
+════════════════════════════════════════════════════ -->
+<div id="authPanel" style="display:none;">
+    <div class="auth-card">
+
+        <div class="auth-logo">
+            <div class="auth-logo-icon">🔐</div>
+            <h1>SecureBank</h1>
+            <p>Homomorphic Encryption System</p>
+        </div>
+
+        <div class="auth-tabs">
+            <button class="auth-tab-btn active" id="loginTabBtn"    onclick="showAuthTab('login')">Sign In</button>
+            <button class="auth-tab-btn"         id="registerTabBtn" onclick="showAuthTab('register')">Register</button>
+        </div>
+
+        <div id="authError"   class="auth-error"></div>
+        <div id="authSuccess" class="auth-success"></div>
+
+        <!-- Sign-In form -->
+        <div id="loginForm">
+            <div class="auth-form-group">
+                <label class="auth-label">Email</label>
+                <input type="email" id="loginEmail" class="auth-input" placeholder="you@example.com" autocomplete="email">
+            </div>
+            <div class="auth-form-group">
+                <label class="auth-label">Password</label>
+                <input type="password" id="loginPassword" class="auth-input" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <button class="auth-btn" id="loginBtn" onclick="handleLogin()">Sign In →</button>
+        </div>
+
+        <!-- Register form -->
+        <div id="registerForm" style="display:none;">
+            <div class="auth-form-group">
+                <label class="auth-label">Email</label>
+                <input type="email" id="regEmail" class="auth-input" placeholder="you@example.com" autocomplete="email">
+            </div>
+            <div class="auth-form-group">
+                <label class="auth-label">Password <small style="font-weight:400;color:var(--text-light)">(min 6 chars)</small></label>
+                <input type="password" id="regPassword" class="auth-input" placeholder="••••••••" autocomplete="new-password">
+            </div>
+            <div class="auth-form-group">
+                <label class="auth-label">Confirm Password</label>
+                <input type="password" id="regConfirm" class="auth-input" placeholder="••••••••" autocomplete="new-password">
+            </div>
+            <button class="auth-btn" id="registerBtn" onclick="handleRegister()">Create Account →</button>
+        </div>
+
+    </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     APP PANEL — shown when logged in
+════════════════════════════════════════════════════ -->
+<div id="appPanel">
+    <div class="app-container">
+
+        <header>
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo">🔐</div>
+                    <div>
+                        <div class="brand-name">SecureBank</div>
+                        <div class="brand-tagline">Homomorphic Encryption System</div>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="user-chip">
+                        <div class="user-chip-dot"></div>
+                        <span id="userEmail"></span>
+                    </div>
+                    <div class="status-badge">
+                        <span class="status-dot"></span>
+                        System Online
+                    </div>
+                    <button class="btn-logout" onclick="handleLogout()">Sign Out</button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Encryption banner -->
+            <div class="encryption-info">
+                <div class="encryption-title">🔒 Paillier Homomorphic Encryption Active</div>
+                <div class="encryption-desc">
+                    All financial data is encrypted using 512-bit Paillier homomorphic encryption.
+                    Encrypted balances are stored in <strong>Firebase Firestore</strong> and are private to your account.
+                    Transactions and analytics are performed directly on encrypted values — data is never exposed in plain text.
+                </div>
+            </div>
+
+            <!-- Dashboard Stats -->
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Total Balance</span>
+                        <div class="stat-icon">₹</div>
+                    </div>
+                    <div class="stat-value" id="totalBalance">₹0.00</div>
+                    <div class="stat-label">Calculated on encrypted data</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Active Accounts</span>
+                        <div class="stat-icon">👥</div>
+                    </div>
+                    <div class="stat-value" id="totalAccounts">0</div>
+                    <div class="stat-label">Your registered accounts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-header">
+                        <span class="stat-title">Transactions</span>
+                        <div class="stat-icon">📊</div>
+                    </div>
+                    <div class="stat-value" id="totalTransactions">0</div>
+                    <div class="stat-label">Total processed</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="accounts">Accounts</button>
+                <button class="tab" data-tab="transactions">Transactions</button>
+                <button class="tab" data-tab="new-account">New Account</button>
+                <button class="tab" data-tab="operations">Operations</button>
+                <button class="tab" data-tab="about">About</button>
+            </div>
+
+            <!-- Accounts Tab -->
+            <div class="tab-content active" id="accounts-tab">
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+                        <h2 class="card-title" style="margin-bottom:0;">Account List</h2>
+                        <button class="btn btn-demo" onclick="populateDemoData()">⚡ Load Demo Data</button>
+                    </div>
+                    <div id="accountsAlert"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Account ID</th><th>Customer Name</th>
+                                    <th>Account Type</th><th>Balance</th><th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody id="accountsBody">
+                                <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-light);">
+                                    No accounts yet. Create one or load demo data.
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transactions Tab -->
+            <div class="tab-content" id="transactions-tab">
+                <div class="card">
+                    <h2 class="card-title">Recent Transactions</h2>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Transaction ID</th><th>Account</th>
+                                    <th>Type</th><th>Amount</th>
+                                    <th>Description</th><th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsBody">
+                                <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-light);">
+                                    No transactions found.
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Account Tab -->
+            <div class="tab-content" id="new-account-tab">
+                <div class="card">
+                    <h2 class="card-title">Create New Account</h2>
+                    <div id="createAccountAlert"></div>
+                    <form id="createAccountForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Account ID *</label>
+                                <input type="text" class="form-input" id="accountId" placeholder="ACC001" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Customer Name *</label>
+                                <input type="text" class="form-input" id="customerName" placeholder="John Doe" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Account Type *</label>
+                                <select class="form-select" id="accountType" required>
+                                    <option value="Savings">Savings</option>
+                                    <option value="Current">Current</option>
+                                    <option value="Salary">Salary</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Initial Balance (₹) *</label>
+                                <input type="number" class="form-input" id="initialBalance" placeholder="10000" min="0" step="0.01" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Account</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Operations Tab -->
+            <div class="tab-content" id="operations-tab">
+                <div class="card">
+                    <h2 class="card-title">Banking Operations</h2>
+                    <div id="operationsAlert"></div>
+
+                    <div style="margin-bottom:2rem;padding-bottom:2rem;border-bottom:1px solid var(--border);">
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;">Deposit Money</h3>
+                        <form id="depositForm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Account ID</label>
+                                    <input type="text" class="form-input" id="depositAccount" placeholder="ACC001" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Amount (₹)</label>
+                                    <input type="number" class="form-input" id="depositAmount" placeholder="5000" min="0.01" step="0.01" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-success">Deposit</button>
+                        </form>
+                    </div>
+
+                    <div style="margin-bottom:2rem;padding-bottom:2rem;border-bottom:1px solid var(--border);">
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;">Withdraw Money</h3>
+                        <form id="withdrawForm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Account ID</label>
+                                    <input type="text" class="form-input" id="withdrawAccount" placeholder="ACC001" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Amount (₹)</label>
+                                    <input type="number" class="form-input" id="withdrawAmount" placeholder="5000" min="0.01" step="0.01" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-secondary">Withdraw</button>
+                        </form>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;">Transfer Money</h3>
+                        <form id="transferForm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">From Account</label>
+                                    <input type="text" class="form-input" id="fromAccount" placeholder="ACC001" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">To Account</label>
+                                    <input type="text" class="form-input" id="toAccount" placeholder="ACC002" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Amount (₹)</label>
+                                    <input type="number" class="form-input" id="transferAmount" placeholder="5000" min="0.01" step="0.01" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Transfer</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- About Tab -->
+            <div class="tab-content" id="about-tab">
+                <div class="card">
+                    <h2 class="card-title">About This Project</h2>
+                    <div style="margin-bottom:2rem;">
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;color:var(--primary);">Project Details</h3>
+                        <p style="color:var(--text-light);margin-bottom:1rem;">
+                            <strong>Title:</strong> Data Privacy Preservation System using Homomorphic Encryption Technique<br>
+                            <strong>Domain:</strong> Banking &amp; Financial Security<br>
+                            <strong>Encryption:</strong> Paillier Homomorphic Encryption (512-bit)<br>
+                            <strong>Storage:</strong> Firebase Firestore — encrypted balances stored as ciphertext strings<br>
+                            <strong>Auth:</strong> Firebase Authentication (Email / Password) — each user's data is fully isolated<br>
+                            <strong>Technologies:</strong> Python, Flask, Firebase, HTML / CSS / JavaScript
+                        </p>
+                    </div>
+                    <div style="margin-bottom:2rem;">
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;color:var(--primary);">What is Homomorphic Encryption?</h3>
+                        <p style="color:var(--text-light);line-height:1.8;">
+                            Homomorphic encryption allows computations to be performed on encrypted data without decrypting it first.
+                            Banking data remains encrypted throughout all operations — deposits, withdrawals, transfers, and balance aggregation —
+                            while still producing correct results.
+                        </p>
+                    </div>
+                    <div style="margin-bottom:2rem;">
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;color:var(--primary);">Key Features</h3>
+                        <ul style="list-style:none;padding:0;">
+                            <li style="padding:.5rem 0;color:var(--text-light);">✅ Paillier homomorphic encryption (512-bit) — implemented from scratch</li>
+                            <li style="padding:.5rem 0;color:var(--text-light);">✅ Encrypted balances stored in Firebase Firestore as ciphertext strings</li>
+                            <li style="padding:.5rem 0;color:var(--text-light);">✅ Firebase Authentication — each user has private, isolated data</li>
+                            <li style="padding:.5rem 0;color:var(--text-light);">✅ Every API request verified with a short-lived Firebase ID token</li>
+                            <li style="padding:.5rem 0;color:var(--text-light);">✅ Privacy-preserving total balance calculated directly on ciphertext</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 style="font-size:1.125rem;font-weight:600;margin-bottom:1rem;color:var(--primary);">Technical Implementation</h3>
+                        <div class="code-block">
+// Firestore document (users/{uid}/accounts/ACC001)<br>
+{ encrypted_balance: "8273649182736491...",  // Paillier ciphertext as string<br>
+&nbsp;&nbsp;customer_name: "Rajesh Kumar", account_type: "Savings" }<br>
+<br>
+// Homomorphic deposit — no decryption needed<br>
+enc_new = homomorphic_add(enc_old_balance, enc_deposit_amount)<br>
+// Store enc_new back to Firestore — plaintext never exposed
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div class="footer-content">
+                <p class="footer-text">
+                    <strong>B.E. Information Technology — Final Year Major Project</strong><br>
+                    Mumbai University | Data Privacy Preservation System using Homomorphic Encryption
+                </p>
+                <div class="footer-links">
+                    <a href="#" class="footer-link">Documentation</a>
+                    <a href="#" class="footer-link">GitHub Repository</a>
+                    <a href="#" class="footer-link">Research Paper</a>
+                </div>
+            </div>
+        </footer>
+
+    </div>
+</div><!-- /#appPanel -->
+
+
+<script>
+    const API_BASE = 'http://localhost:5000/api';
+
+    // ── Auth UI helpers ──────────────────────────────────────────────────────
+    function showAuthTab(tab) {
+        document.getElementById('loginForm').style.display    = tab === 'login'    ? 'block' : 'none';
+        document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
+        document.getElementById('loginTabBtn').classList.toggle('active',    tab === 'login');
+        document.getElementById('registerTabBtn').classList.toggle('active', tab === 'register');
+        clearAuthMessages();
+    }
+
+    function showAuthError(msg) {
+        const el = document.getElementById('authError');
+        el.textContent = msg; el.style.display = 'block';
+        document.getElementById('authSuccess').style.display = 'none';
+    }
+
+    function showAuthSuccessMsg(msg) {
+        const el = document.getElementById('authSuccess');
+        el.textContent = msg; el.style.display = 'block';
+        document.getElementById('authError').style.display = 'none';
+    }
+
+    function clearAuthMessages() {
+        document.getElementById('authError').style.display   = 'none';
+        document.getElementById('authSuccess').style.display = 'none';
+    }
+
+    function setAuthBtnLoading(btnId, loading) {
+        const btn = document.getElementById(btnId);
+        btn.disabled = loading;
+        btn.textContent = loading ? 'Please wait…' : (btnId === 'loginBtn' ? 'Sign In →' : 'Create Account →');
+    }
+
+    async function handleLogin() {
+        clearAuthMessages();
+        const email    = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
+        if (!email || !password) { showAuthError('Please enter your email and password.'); return; }
+        setAuthBtnLoading('loginBtn', true);
+        try {
+            await window._fbSignIn(email, password);
+            // onAuthStateChanged handles the rest
+        } catch (err) {
+            showAuthError(friendlyAuthError(err.code));
+            setAuthBtnLoading('loginBtn', false);
+        }
+    }
+
+    async function handleRegister() {
+        clearAuthMessages();
+        const email    = document.getElementById('regEmail').value.trim();
+        const password = document.getElementById('regPassword').value;
+        const confirm  = document.getElementById('regConfirm').value;
+        if (!email || !password || !confirm) { showAuthError('Please fill in all fields.'); return; }
+        if (password !== confirm)            { showAuthError('Passwords do not match.'); return; }
+        if (password.length < 6)             { showAuthError('Password must be at least 6 characters.'); return; }
+        setAuthBtnLoading('registerBtn', true);
+        try {
+            await window._fbRegister(email, password);
+            showAuthSuccessMsg('Account created! Signing you in…');
+        } catch (err) {
+            showAuthError(friendlyAuthError(err.code));
+            setAuthBtnLoading('registerBtn', false);
+        }
+    }
+
+    async function handleLogout() {
+        await window._fbSignOut();
+    }
+
+    function friendlyAuthError(code) {
+        const map = {
+            'auth/invalid-email':        'Invalid email address.',
+            'auth/user-not-found':       'No account found with this email.',
+            'auth/wrong-password':       'Incorrect password.',
+            'auth/invalid-credential':   'Invalid email or password.',
+            'auth/email-already-in-use': 'This email is already registered. Try signing in.',
+            'auth/weak-password':        'Password is too weak (minimum 6 characters).',
+            'auth/too-many-requests':    'Too many attempts. Please wait a moment and try again.',
+            'auth/network-request-failed': 'Network error. Check your internet connection.'
+        };
+        return map[code] || `Error: ${code}`;
+    }
+
+    // Allow Enter key on auth inputs
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        if (document.getElementById('loginForm').style.display !== 'none')    handleLogin();
+        else if (document.getElementById('registerForm').style.display !== 'none') handleRegister();
+    });
+
+    // ── Authenticated fetch — automatically attaches Firebase ID token ────────
+    async function authFetch(url, options = {}) {
+        const token = await window._fbGetToken();
+        if (!token) { handleLogout(); return null; }
+        options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+        return fetch(url, options);
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const name = tab.dataset.tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`${name}-tab`).classList.add('active');
+        });
+    });
+
+    // ── Alert helper ──────────────────────────────────────────────────────────
+    function showAlert(elementId, message, type = 'success') {
+        const div = document.getElementById(elementId);
+        div.innerHTML = `<div class="alert alert-${type}">${type==='success'?'✅':type==='error'?'❌':'ℹ️'} ${message}</div>`;
+        setTimeout(() => { div.innerHTML = ''; }, 5000);
+    }
+
+    // ── Dashboard stats ───────────────────────────────────────────────────────
+    async function fetchStats() {
+        try {
+            const [accRes, txnRes, balRes] = await Promise.all([
+                authFetch(`${API_BASE}/accounts`),
+                authFetch(`${API_BASE}/transactions`),
+                authFetch(`${API_BASE}/analytics/total-balance`)
+            ]);
+            if (!accRes || !txnRes || !balRes) return;
+            const accounts     = await accRes.json();
+            const transactions = await txnRes.json();
+            const balance      = await balRes.json();
+            document.getElementById('totalAccounts').textContent     = accounts.length;
+            document.getElementById('totalTransactions').textContent = transactions.length;
+            document.getElementById('totalBalance').textContent      =
+                `₹${balance.total_balance.toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+        } catch (e) { console.error('fetchStats error:', e); }
+    }
+
+    // ── Accounts table ────────────────────────────────────────────────────────
+    async function fetchAccounts() {
+        try {
+            const res = await authFetch(`${API_BASE}/accounts`);
+            if (!res) return;
+            const accounts = await res.json();
+            const tbody = document.getElementById('accountsBody');
+            if (!accounts.length) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-light);">No accounts yet. Create one or load demo data.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = accounts.map(acc => `
+                <tr>
+                    <td><strong>${acc.account_id}</strong></td>
+                    <td>${acc.customer_name}</td>
+                    <td><span class="badge badge-info">${acc.account_type}</span></td>
+                    <td><strong>₹${acc.balance.toLocaleString('en-IN',{minimumFractionDigits:2})}</strong></td>
+                    <td>${new Date(acc.created_at).toLocaleDateString()}</td>
+                </tr>`).join('');
+        } catch (e) { console.error('fetchAccounts error:', e); }
+    }
+
+    // ── Transactions table ────────────────────────────────────────────────────
+    async function fetchTransactions() {
+        try {
+            const res = await authFetch(`${API_BASE}/transactions`);
+            if (!res) return;
+            const transactions = await res.json();
+            const tbody = document.getElementById('transactionsBody');
+            if (!transactions.length) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-light);">No transactions found.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = transactions.map(txn => {
+                const cls = txn.amount >= 0 ? 'badge-success' : 'badge-error';
+                return `<tr>
+                    <td><code>${txn.transaction_id}</code></td>
+                    <td>${txn.account_id}</td>
+                    <td><span class="badge ${cls}">${txn.type}</span></td>
+                    <td><strong>₹${Math.abs(txn.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</strong></td>
+                    <td>${txn.description}</td>
+                    <td>${new Date(txn.timestamp).toLocaleString()}</td>
+                </tr>`;
+            }).join('');
+        } catch (e) { console.error('fetchTransactions error:', e); }
+    }
+
+    // ── Create account form ───────────────────────────────────────────────────
+    document.getElementById('createAccountForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+            account_id:      document.getElementById('accountId').value,
+            customer_name:   document.getElementById('customerName').value,
+            account_type:    document.getElementById('accountType').value,
+            initial_balance: parseFloat(document.getElementById('initialBalance').value)
+        };
+        try {
+            const res    = await authFetch(`${API_BASE}/account/create`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+            const result = await res.json();
+            if (res.ok) { showAlert('createAccountAlert', result.message, 'success'); e.target.reset(); fetchStats(); fetchAccounts(); }
+            else        { showAlert('createAccountAlert', result.error, 'error'); }
+        } catch { showAlert('createAccountAlert', 'Error creating account', 'error'); }
+    });
+
+    // ── Deposit ───────────────────────────────────────────────────────────────
+    document.getElementById('depositForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const res    = await authFetch(`${API_BASE}/transaction/deposit`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ account_id: document.getElementById('depositAccount').value, amount: parseFloat(document.getElementById('depositAmount').value) }) });
+            const result = await res.json();
+            if (res.ok) { showAlert('operationsAlert', `Deposit successful! New balance: ₹${result.new_balance.toFixed(2)}`, 'success'); e.target.reset(); fetchStats(); fetchAccounts(); fetchTransactions(); }
+            else        { showAlert('operationsAlert', result.error, 'error'); }
+        } catch { showAlert('operationsAlert', 'Error processing deposit', 'error'); }
+    });
+
+    // ── Withdraw ──────────────────────────────────────────────────────────────
+    document.getElementById('withdrawForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const res    = await authFetch(`${API_BASE}/transaction/withdraw`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ account_id: document.getElementById('withdrawAccount').value, amount: parseFloat(document.getElementById('withdrawAmount').value) }) });
+            const result = await res.json();
+            if (res.ok) { showAlert('operationsAlert', `Withdrawal successful! New balance: ₹${result.new_balance.toFixed(2)}`, 'success'); e.target.reset(); fetchStats(); fetchAccounts(); fetchTransactions(); }
+            else        { showAlert('operationsAlert', result.error, 'error'); }
+        } catch { showAlert('operationsAlert', 'Error processing withdrawal', 'error'); }
+    });
+
+    // ── Transfer ──────────────────────────────────────────────────────────────
+    document.getElementById('transferForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const res    = await authFetch(`${API_BASE}/transaction/transfer`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ from_account: document.getElementById('fromAccount').value, to_account: document.getElementById('toAccount').value, amount: parseFloat(document.getElementById('transferAmount').value) }) });
+            const result = await res.json();
+            if (res.ok) { showAlert('operationsAlert', 'Transfer successful!', 'success'); e.target.reset(); fetchStats(); fetchAccounts(); fetchTransactions(); }
+            else        { showAlert('operationsAlert', result.error, 'error'); }
+        } catch { showAlert('operationsAlert', 'Error processing transfer', 'error'); }
+    });
+
+    // ── Demo data ─────────────────────────────────────────────────────────────
+    async function populateDemoData() {
+        try {
+            const res    = await authFetch(`${API_BASE}/demo/populate`, { method:'POST' });
+            const result = await res.json();
+            if (res.ok) { showAlert('accountsAlert', `Demo data loaded! ${result.accounts_created} accounts created.`, 'success'); fetchStats(); fetchAccounts(); }
+            else        { showAlert('accountsAlert', result.error, 'error'); }
+        } catch { showAlert('accountsAlert', 'Error loading demo data', 'error'); }
+    }
+
+    // Auto-refresh every 10 s while logged in
+    setInterval(() => {
+        if (document.getElementById('appPanel').style.display !== 'none') {
+            fetchStats(); fetchAccounts(); fetchTransactions();
+        }
+    }, 10000);
+</script>
+</body>
+</html>
